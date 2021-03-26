@@ -144,30 +144,55 @@ module Jekyll
       dest_org                    = self.dest                     # Destination folder where the website is generated
       
       # Site building only variables
-      locales                   = self.config['locales'] # List of locales set on _config.yml
-      
+      locales                     = self.config['locales'] # List of locales set on _config.yml
+
+
       # Site wide plugin configurations
-      self.config['default_locale'] = locales.first          # Default locale (first locale of array set on _config.yml)
-      self.config[        'locale'] = locales.first          # Current locale being processed
-      self.config['baseurl_root'] = baseurl_org              # Baseurl of website root (without the appended locale code)
-      self.config['translations'] = self.parsed_translations # Hash that stores parsed translations read from YAML files. Exposes this hash to Liquid.
-      
-      # Build the website for all locales
+      self.config['default_locale'] = locales.first            # Default locale (first locale of array set on _config.yml)
+      self.config[  'baseurl_root'] = baseurl_org              # Baseurl of website root (without the appended locale code)
+      self.config[  'translations'] = self.parsed_translations # Hash that stores parsed translations read from YAML files. Exposes this hash to Liquid.
+
+
+      # Build the website for default locale
+      #-------------------------------------------------------------------------
+      locale                      = locales.first
+      parts                       = locale.split("-")
+      language                    = parts.shift
+      territory                   = parts.shift
+      locale_underscore           = locale.dup
+      locale_underscore.sub! "-", "_"
+
+      self.config[           'locale'] = locale
+      self.config['locale_underscore'] = locale_underscore
+      self.config[             'lang'] = language
+      self.config[        'territory'] = territory
+
+      puts "Building default site for default language: \"#{language}\" and territory: \"#{territory}\" to: #{self.dest}"
+      process_org
+
+      # Build the website for non-default locales
       #-------------------------------------------------------------------------
       
       # Remove .htaccess file from included files, so it wont show up on translations folders.
       self.include -= [".htaccess"]
       
-      locales.each do |locale|
+      locales.drop(1).each do |locale|
         
         # locale specific config/variables
-        if locale != self.config['default_locale'] || self.config['default_locale_in_subfolder']
-          @dest                  = dest_org    + "/" + locale
-          self.config['baseurl'] = baseurl_org + "/" + locale
-          self.config['locale']    =                     locale
-        end
-        
-        puts "Building site for locale: \"#{self.config['locale']}\" to: #{self.dest}"
+        parts                            = locale.split("-")
+        language                         = parts.shift
+        territory                        = parts.shift
+        locale_underscore                = locale.dup
+        locale_underscore.sub! "-", "_"
+
+        @dest                            = dest_org    + "/" + locale
+        self.config[          'baseurl'] = baseurl_org + "/" + locale
+        self.config[           'locale'] = locale
+        self.config['locale_underscore'] = locale_underscore
+        self.config[             'lang'] = language
+        self.config[        'territory'] = territory
+
+        puts "Building site for language: \"#{language}\" and territory: \"#{territory}\" to: #{self.dest}"
         
         process_org
       end
@@ -379,17 +404,27 @@ module Jekyll
       
       locale = site.config['locale']
       
-      translation = site.parsed_translations[locale].access(key) if key.is_a?(String)
-      
+      get_translation(site, locale, key)
+    end
+
+    def get_translation(site, locale, key)
+      translation = site.parsed_translations[locale].access(key) if key.is_a?(String) and site.parsed_translations[locale]
+
       if translation.nil? or translation.empty?
-         translation = site.parsed_translations[site.config['default_locale']].access(key)
-        
-        if site.config["verbose"]
-          puts "Missing i18n key: #{locale}:#{key}"
-          puts "Using translation '%s' from default locale: %s" %[translation, site.config['default_locale']]
+        lang = locale.split("-").shift
+        if lang != locale and site.config['locales'].include?(lang)
+          if site.config["verbose"]
+            puts "Missing i18n key: #{locale}:#{key}, looking for fallback in #{lang}"
+          end
+          translation = get_translation(site, lang, key)
+        else
+          translation = site.parsed_translations[site.config['default_locale']].access(key)
+          if site.config["verbose"]
+            puts "Missing i18n key: #{locale}:#{key}"
+            puts "Using translation '%s' from default locale: %s" %[translation, site.config['default_locale']]
+          end
         end
       end
-      
       translation
     end
   end
