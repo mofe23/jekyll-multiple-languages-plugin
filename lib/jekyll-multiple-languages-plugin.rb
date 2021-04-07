@@ -203,27 +203,6 @@ module Jekyll
       
       puts 'Build complete'
     end
-
-
-
-    if Gem::Version.new(Jekyll::VERSION) < Gem::Version.new("3.0.0")
-      alias :read_posts_org :read_posts
-
-      #======================================
-      # read_posts
-      #======================================
-      def read_posts(dir)
-        translate_posts = !self.config['exclude_from_localizations'].include?("_posts")
-        
-        if dir == '' && translate_posts
-          read_posts("_i18n/#{self.config['locale']}/")
-        else
-          read_posts_org(dir)
-        end
-        
-      end
-    end
-
   end
 
 
@@ -252,20 +231,17 @@ module Jekyll
   # class PostReader
   ##############################################################################
   class PostReader
-  
-    if Gem::Version.new(Jekyll::VERSION) >= Gem::Version.new("3.0.0")
-      alias :read_posts_org :read_posts
-      
-      #======================================
-      # read_posts
-      #======================================
-      def read_posts(dir)
-        translate_posts = !site.config['exclude_from_localizations'].include?("_posts")
-        if dir == '' && translate_posts
-          read_posts("_i18n/#{site.config['locale']}/")
-        else
-          read_posts_org(dir)
-        end
+     alias :read_posts_org :read_posts
+
+    #======================================
+    # read_posts
+    #======================================
+    def read_posts(dir)
+      translate_posts = !site.config['exclude_from_localizations'].include?("_posts")
+      if dir == '' && translate_posts
+        read_posts("_i18n/#{site.config['locale']}/")
+      else
+        read_posts_org(dir)
       end
     end
   end
@@ -303,61 +279,27 @@ module Jekyll
 
 
   ##############################################################################
-  # class Post
-  ##############################################################################
-  class Post
-  
-    if Gem::Version.new(Jekyll::VERSION) < Gem::Version.new("3.0.0")
-      alias :populate_categories_org :populate_categories
-      
-      #======================================
-      # populate_categories
-      #
-      # Monkey patched this method to remove unwanted strings
-      # ("_i18n" and locale code) that are prepended to posts categories
-      # because of how the multilingual posts are arranged in subfolders.
-      #======================================
-      def populate_categories
-        categories_from_data = Utils.pluralized_array_from_hash(data, 'category', 'categories')
-        self.categories = (
-          Array(categories) + categories_from_data
-        ).map {|c| c.to_s.downcase}.flatten.uniq
-        
-        self.categories.delete("_i18n")
-        self.categories.delete(site.config['locale'])
-        
-        return self.categories
-      end
-    end
-  end
-
-
-
-  ##############################################################################
   # class Document
   ##############################################################################
   class Document
-    
-    if Gem::Version.new(Jekyll::VERSION) >= Gem::Version.new("3.0.0")
-      alias :populate_categories_org :populate_categories
+    alias :populate_categories_org :populate_categories
       
-      #======================================
-      # populate_categories
-      #
-      # Monkey patched this method to remove unwanted strings
-      # ("_i18n" and locale code) that are prepended to posts categories
-      # because of how the multilingual posts are arranged in subfolders.
-      #======================================
-      def populate_categories
-        data['categories'].delete("_i18n")
-        data['categories'].delete(site.config['locale'])
-        
-        merge_data!({
-          'categories' => (
-            Array(data['categories']) + Utils.pluralized_array_from_hash(data, 'category', 'categories')
-          ).map(&:to_s).flatten.uniq
-        })
-      end
+    #======================================
+    # populate_categories
+    #
+    # Monkey patched this method to remove unwanted strings
+    # ("_i18n" and locale code) that are prepended to posts categories
+    # because of how the multilingual posts are arranged in subfolders.
+    #======================================
+    def populate_categories
+      data['categories'].delete("_i18n")
+      data['categories'].delete(site.config['locale'])
+
+      merge_data!({
+        'categories' => (
+          Array(data['categories']) + Utils.pluralized_array_from_hash(data, 'category', 'categories')
+        ).map(&:to_s).flatten.uniq
+      })
     end
   end
   
@@ -385,8 +327,6 @@ module Jekyll
       super
       @key = key.strip
     end
-    
-    
     
     #======================================
     # render
@@ -535,9 +475,7 @@ module Jekyll
       super
       @key = key
     end
-    
-    
-    
+
     #======================================
     # render
     #======================================
@@ -565,7 +503,7 @@ module Jekyll
       end
       
       collections = site.collections.values.collect{|x| x.docs}.flatten
-      pages = site.pages + collections
+      pages = pages + collections
       
       for p in pages
         unless             p['namespace'].nil?
