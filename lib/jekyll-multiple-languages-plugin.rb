@@ -14,6 +14,36 @@ for more details.
 
 require_relative "plugin/version"
 
+def translate_url(site, namespace, locale_param, strip_locale=false)
+  current_locale    = site.config['locale']
+  locale            = locale_param || current_locale
+  is_default_locale = site.config['is_default_locale']
+  baseurl           = site.baseurl
+  pages             = site.pages
+  url               = "";
+
+  if (locale_param && !strip_locale) || (!locale_param && !is_default_locale )
+    baseurl = baseurl + "/" + locale
+  end
+
+  collections = site.collections.values.collect{|x| x.docs}.flatten
+  pages = pages + collections
+
+  for p in pages
+    unless             p['namespace'].nil?
+      page_namespace = p['namespace']
+
+      if namespace == page_namespace
+        permalink = p['permalink_'+locale] || p['permalink']
+        url       = baseurl + permalink
+      end
+    end
+  end
+
+  url
+
+end
+
 module Jekyll
 
   #*****************************************************************************
@@ -166,6 +196,7 @@ module Jekyll
       self.config['locale_underscore'] = locale_underscore
       self.config[             'lang'] = language
       self.config[        'territory'] = territory
+      self.config['is_default_locale'] = true
 
       puts "Building default site for default language: \"#{language}\" and territory: \"#{territory}\" to: #{self.dest}"
       process_org
@@ -191,6 +222,7 @@ module Jekyll
         self.config['locale_underscore'] = locale_underscore
         self.config[             'lang'] = language
         self.config[        'territory'] = territory
+        self.config['is_default_locale'] = false
 
         puts "Building site for language: \"#{language}\" and territory: \"#{territory}\" to: #{self.dest}"
         
@@ -490,37 +522,25 @@ module Jekyll
       
       site = context.registers[:site] # Jekyll site object
       
-      key          = key.split
-      namespace    = key[0]
-      locale         = key[1] || site.config[        'locale']
-      default_locale =           site.config['default_locale']
-      baseurl      =           site.baseurl
-      pages        =           site.pages
-      url          = "";
-      
-      if default_locale != locale || site.config['default_locale_in_subfolder']
-        baseurl = baseurl + "/" + locale
-      end
-      
-      collections = site.collections.values.collect{|x| x.docs}.flatten
-      pages = pages + collections
-      
-      for p in pages
-        unless             p['namespace'].nil?
-          page_namespace = p['namespace']
-          
-          if namespace == page_namespace
-            permalink = p['permalink_'+locale] || p['permalink']
-            url       = baseurl + permalink
-          end
-        end
-      end
-      
-      url
+      key               = key.split
+      namespace         = key.shift
+      locale_param      = key.shift
+      strip_locale      = key.shift || false
+      translate_url(site, namespace, locale_param, strip_locale)
     end
   end
-  
-  
+
+  module Filters
+    module URLFilters
+      def sanitized_baseurl
+        site = @context.registers[:site]
+        baseurl = site.config["baseurl_root"]
+        return "" if baseurl.nil?
+
+        baseurl.to_s.chomp("/")
+      end
+    end
+  end
 end # End module Jekyll
 
 
