@@ -14,15 +14,15 @@ for more details.
 
 require_relative "plugin/version"
 
-def translate_url(site, namespace, locale_param, strip_locale=false)
+def translate_url(site, namespace, locale_param)
   current_locale    = site.config['locale']
   locale            = locale_param || current_locale
-  is_default_locale = site.config['is_default_locale']
+  default_locale    = site.config['default_locale']
   baseurl           = site.baseurl
   pages             = site.pages
-  url               = "";
+  url               = ""
 
-  if (locale_param && !strip_locale) || (!locale_param && !is_default_locale )
+  if default_locale != locale || site.config['default_locale_in_subfolder']
     baseurl = baseurl + "/" + locale
   end
 
@@ -66,21 +66,21 @@ module Jekyll
     current_locale = site.config["locale"]
     exclude_paths = site.config["exclude_from_localizations"]
 
-    if (default_locale == current_locale && site.config["default_locale_in_subfolder"])
+    if default_locale == current_locale && site.config["default_locale_in_subfolder"]
       files = Dir.glob(File.join("_site/" + current_locale + "/", "*"))
       files.each do |file_path|
         parts = file_path.split('/')
         f_path = parts[2..-1].join('/')
-        if (f_path == 'base.html')
+        if f_path == 'base.html'
           new_path = parts[0] + "/index.html"
           puts "Moving '" + file_path + "' to '" + new_path + "'"
           File.rename file_path, new_path
         else
           exclude_paths.each do |exclude_path|
-            if (exclude_path == f_path)
+            if exclude_path == f_path
               new_path = parts[0] + "/" + f_path
               puts "Moving '" + file_path + "' to '" + new_path + "'"
-              if (Dir.exists?(new_path))
+              if Dir.exists?(new_path)
                 FileUtils.rm_r new_path
               end
               File.rename file_path, new_path
@@ -166,10 +166,9 @@ module Jekyll
 
       self.config['default_locale_in_subfolder'] ||= false
       
-      if ( !self.config['locales']         or
-            self.config['locales'].empty?  or
-           !self.config['locales'].all?
-         )
+      if !self.config['locales'] or
+        self.config['locales'].empty? or
+        !self.config['locales'].all?
           puts 'You must provide at least one locale using the "locales" setting on your _config.yml.'
           
           exit
@@ -192,26 +191,7 @@ module Jekyll
       self.config[  'baseurl_root'] = baseurl_org              # Baseurl of website root (without the appended locale code)
       self.config[  'translations'] = self.parsed_translations # Hash that stores parsed translations read from YAML files. Exposes this hash to Liquid.
 
-
-      # Build the website for default locale
-      #-------------------------------------------------------------------------
-      locale                      = locales.first
-      parts                       = locale.split("-")
-      language                    = parts.shift
-      territory                   = parts.shift
-      locale_underscore           = locale.dup
-      locale_underscore.sub! "-", "_"
-
-      self.config[           'locale'] = locale
-      self.config['locale_underscore'] = locale_underscore
-      self.config[             'lang'] = language
-      self.config[        'territory'] = territory
-      self.config['is_default_locale'] = true
-
-      puts "Building default site for default language: \"#{language}\" and territory: \"#{territory}\" to: #{self.dest}"
-      process_org
-
-      # Build the website for non-default locales
+      # Build the website for all languages
       #-------------------------------------------------------------------------
       
       # Remove .htaccess file from included files, so it wont show up on translations folders.
@@ -226,7 +206,7 @@ module Jekyll
         locale_underscore                = locale.dup
         locale_underscore.sub! "-", "_"
 
-        if lang != self.config['default_lang'] || self.config['default_locale_in_subfolder']
+        if locale != self.config['default_locale'] || self.config['default_locale_in_subfolder']
           @dest                            = dest_org    + "/" + locale
           self.config[          'baseurl'] = baseurl_org + "/" + locale
         end
@@ -384,40 +364,14 @@ module Jekyll
       if      "#{context[@key]}" != "" # Check for page variable
         key = "#{context[@key]}"
       else
-        key =            @key
+        key = @key
       end
       
       key = Liquid::Template.parse(key).render(context)  # Parses and renders some Liquid syntax on arguments (allows expansions)
-      
       site = context.registers[:site] # Jekyll site object
-      
       locale = site.config['locale']
-      
-      get_translation(site, locale, key)
-    end
-
-    def get_translation(site, locale, key)
-      translation = site.parsed_translations[locale].access(key) if key.is_a?(String) and site.parsed_translations[locale]
-
-      if translation.nil? or translation.empty?
-        lang = locale.split("-").shift
-        if lang != locale and site.config['locales'].include?(lang)
-          if site.config["verbose"]
-            puts "Missing i18n key: #{locale}:#{key}, looking for fallback in #{lang}"
-          end
-          translation = get_translation(site, lang, key)
-        else
-          translation = site.parsed_translations[site.config['default_locale']].access(key)
-          if site.config["verbose"]
-            puts "Missing i18n key: #{locale}:#{key}"
-            puts "Using translation '%s' from default locale: %s" %[translation, site.config['default_locale']]
-          end
-        end
-      end
 
       TranslatedString.translate(key, locale, site)
-
-      translation
     end
   end
 
@@ -459,7 +413,7 @@ module Jekyll
           # If file doesn't exist, go to default locale
           Dir.chdir(includes_dir) do
             choices = Dir['**/*'].reject { |x| File.symlink?(x) }
-            if !choices.include?(  file)
+            unless choices.include?(file)
               includes_dir = File.join(site.source, '_i18n/' + default_locale)
             end
           end
@@ -545,8 +499,7 @@ module Jekyll
       key               = key.split
       namespace         = key.shift
       locale_param      = key.shift
-      strip_locale      = key.shift || false
-      translate_url(site, namespace, locale_param, strip_locale)
+      translate_url(site, namespace, locale_param)
     end
   end
 
@@ -588,7 +541,7 @@ unless Hash.method_defined? :access
 
           break unless ret
         end
-      rescue TypeError => e
+      rescue TypeError
         puts("Could not find key '#{path}', aborting. . .")
         raise
 
@@ -605,19 +558,29 @@ end
 #
 # Translate given key to given language.
 #======================================
-def translate_key(key, lang, site)
-  unless site.parsed_translations.has_key?(lang)
-    puts              "Loading translation from file #{site.source}/_i18n/#{lang}.yml"
-    site.parsed_translations[lang] = YAML.load_file("#{site.source}/_i18n/#{lang}.yml")
+def translate_key(key, locale, site)
+  unless site.parsed_translations.has_key?(locale)
+    puts "Loading translation from file #{site.source}/_i18n/#{locale}.yml"
+    site.parsed_translations[locale] = YAML.load_file("#{site.source}/_i18n/#{locale}.yml")
   end
 
-  translation = site.parsed_translations[lang].access(key) if key.is_a?(String)
+  translation = nil
+  if key.is_a?(String)
+    translation = site.parsed_translations[locale].access(key)
+  else
+    puts "Translation key is not a String #{key}"
+  end
 
-  if translation.nil? or translation.empty?
-    translation = site.parsed_translations[site.config['default_lang']].access(key)
-
-    puts "Missing i18n key: #{lang}:#{key}"
-    puts "Using translation '%s' from default language: %s" %[translation, site.config['default_lang']]
+  if (translation.nil? or translation.empty?) and not locale == site.config["default_locale"]
+    lang = locale.split("-").shift
+    unless lang != locale and site.config['locales'].include?(lang)
+      lang = site.config["default_locale"]
+    end
+    if site.config["verbose"]
+      warn = translation.nil? ? "Missing" : "Empty"
+      puts "#{warn} i18 key: #{locale}:#{key}, Searching for '#{lang}' fallback"
+    end
+    translation = translate_key(key, lang, site)
   end
 
   translation
@@ -649,7 +612,12 @@ class TranslatedString < String
     else
       key = str
     end
-    return TranslatedString.new(translate_key(key, lang, site), key = key)
+    t = translate_key(key, lang, site)
+    unless t.is_a?(String)
+      t = "Missing i18n key: #{lang}:#{key}"
+      puts "#{t}"
+    end
+    return TranslatedString.new(t, key = key)
   end
 end
 
@@ -660,7 +628,7 @@ end
 # Perform translation of properties defined in translation property list.
 #======================================
 def translate_props(data, site, props_key_name = 'translate_props')
-  lang = site.config['lang']
+  locale = site.config['locale']
   (data[props_key_name] || []).each do |prop_name|
     if prop_name.is_a?(String)
       prop_name = prop_name.strip
@@ -669,7 +637,7 @@ def translate_props(data, site, props_key_name = 'translate_props')
       else
         prop_value = data[prop_name]
         if prop_value.is_a?(String) and !prop_value.empty?
-          data[prop_name] = TranslatedString.translate(prop_value, lang, site)
+          data[prop_name] = TranslatedString.translate(prop_value, locale, site)
         end
       end
     else
