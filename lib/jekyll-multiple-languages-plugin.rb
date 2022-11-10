@@ -130,7 +130,17 @@ module Jekyll
     
   end
 
+  #*****************************************************************************
+  # :site, :pre_render hook
+  #*****************************************************************************
+  Jekyll::Hooks.register :site, :pre_render do |site, payload|
 
+    # Localize front matter data of every page.
+    #===========================================================================
+    (site.pages + site.documents).each do |item|
+      translate_props(item.data, site)
+     end
+  end
 
   ##############################################################################
   # class Site
@@ -207,7 +217,7 @@ module Jekyll
       # Remove .htaccess file from included files, so it wont show up on translations folders.
       self.include -= [".htaccess"]
       
-      locales.drop(1).each do |locale|
+      locales.each do |locale|
         
         # locale specific config/variables
         parts                            = locale.split("-")
@@ -216,13 +226,20 @@ module Jekyll
         locale_underscore                = locale.dup
         locale_underscore.sub! "-", "_"
 
-        @dest                            = dest_org    + "/" + locale
-        self.config[          'baseurl'] = baseurl_org + "/" + locale
+        if lang != self.config['default_lang'] || self.config['default_locale_in_subfolder']
+          @dest                            = dest_org    + "/" + locale
+          self.config[          'baseurl'] = baseurl_org + "/" + locale
+        end
+
         self.config[           'locale'] = locale
-        self.config['locale_underscore'] = locale_underscore
         self.config[             'lang'] = language
+        self.config['locale_underscore'] = locale_underscore
         self.config[        'territory'] = territory
         self.config['is_default_locale'] = false
+
+
+        # Translate site attributes to current language
+        translate_props(self.config, self)
 
         puts "Building site for language: \"#{language}\" and territory: \"#{territory}\" to: #{self.dest}"
         
@@ -359,7 +376,7 @@ module Jekyll
       super
       @key = key.strip
     end
-    
+
     #======================================
     # render
     #======================================
@@ -397,6 +414,9 @@ module Jekyll
           end
         end
       end
+
+      TranslatedString.translate(key, locale, site)
+
       translation
     end
   end
@@ -574,6 +594,86 @@ unless Hash.method_defined? :access
 
       end
       ret
+    end
+  end
+end
+
+
+
+#======================================
+# translate_key
+#
+# Translate given key to given language.
+#======================================
+def translate_key(key, lang, site)
+  unless site.parsed_translations.has_key?(lang)
+    puts              "Loading translation from file #{site.source}/_i18n/#{lang}.yml"
+    site.parsed_translations[lang] = YAML.load_file("#{site.source}/_i18n/#{lang}.yml")
+  end
+
+  translation = site.parsed_translations[lang].access(key) if key.is_a?(String)
+
+  if translation.nil? or translation.empty?
+    translation = site.parsed_translations[site.config['default_lang']].access(key)
+
+    puts "Missing i18n key: #{lang}:#{key}"
+    puts "Using translation '%s' from default language: %s" %[translation, site.config['default_lang']]
+  end
+
+  translation
+end
+
+
+################################################################################
+# class TranslatedString
+################################################################################
+class TranslatedString < String
+  #======================================
+  # initialize
+  #======================================
+  def initialize(*several_variants, key)
+    super(*several_variants)
+    @key = key
+  end
+
+  def key
+    @key
+  end
+
+  #======================================
+  # translate
+  #======================================
+  def self.translate(str, lang, site)
+    if str.is_a?(TranslatedString)
+      key = str.key
+    else
+      key = str
+    end
+    return TranslatedString.new(translate_key(key, lang, site), key = key)
+  end
+end
+
+
+#======================================
+# translate_props
+#
+# Perform translation of properties defined in translation property list.
+#======================================
+def translate_props(data, site, props_key_name = 'translate_props')
+  lang = site.config['lang']
+  (data[props_key_name] || []).each do |prop_name|
+    if prop_name.is_a?(String)
+      prop_name = prop_name.strip
+      if prop_name.empty?
+        puts "There is an empty property defined in '#{props_key_name}'"
+      else
+        prop_value = data[prop_name]
+        if prop_value.is_a?(String) and !prop_value.empty?
+          data[prop_name] = TranslatedString.translate(prop_value, lang, site)
+        end
+      end
+    else
+      puts "Incorrect property name '#{prop_name}'. Must be a string"
     end
   end
 end
